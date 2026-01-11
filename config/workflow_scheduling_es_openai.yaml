@@ -25,7 +25,7 @@ policy:
   action_num: 1  # will double-check in builder.py
   discrete_action: True  # will double-check in builder.py
   add_gru: False
-  greedy_action: False  # True (greedy in ES) or False (sampling in PG)
+  greedy_action: True  # Default: True (greedy in ES)
 
 optim:
   name: es_openai
