@@ -4,6 +4,7 @@
 """
 
 import argparse
+import os
 import random
 import numpy as np
 import torch
@@ -20,9 +21,46 @@ def set_seed(seed):
 def main(device, run, test_setting):
     baseconfig = BaseConfig()
 
+    cfg = baseconfig.config["yaml-config"]
+    env_cfg = cfg["env"]
+    opt_cfg = cfg["optim"]
+
+    # Seed override: default to run-based seed, allow env override
+    seed = run * 100 + 1
+    env_seed = os.getenv("GATES_SEED")
+    if env_seed is not None:
+        try:
+            seed = int(env_seed)
+            env_cfg["seed"] = seed
+        except ValueError:
+            pass
+
+    # Override generation count (for smoke runs)
+    gen_env = os.getenv("GATES_GENERATION_NUM")
+    if gen_env is not None:
+        try:
+            opt_cfg["generation_num"] = int(gen_env)
+        except ValueError:
+            pass
+
+    # Runtime overrides
+    eval_env = os.getenv("GATES_EVAL_EP_NUM")
+    if eval_env is not None:
+        try:
+            baseconfig.config["runtime-config"]["eval_ep_num"] = int(eval_env)
+        except ValueError:
+            pass
+
+    proc_env = os.getenv("GATES_PROCESSOR_NUM")
+    if proc_env is not None:
+        try:
+            baseconfig.config["runtime-config"]["processor_num"] = int(proc_env)
+        except ValueError:
+            pass
+
     # Set global running seed
-    set_seed(run*100+1)
-    print(f"seed:{run*100+1}")
+    set_seed(seed)
+    print(f"seed:{seed}")
 
     from config.train_set_config import trainSet_Generate
     yaml_path = 'config/workflow_scheduling_es_openai.yaml'
