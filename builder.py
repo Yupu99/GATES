@@ -56,5 +56,8 @@ def build_optim(config):
     if optim_name == "es_openai":
         from optim.es.es_openai import ESOpenAI  # ES
         return ESOpenAI(config)
+    if optim_name == "guided_es":
+        from optim.es.guided_es import GuidedES  # Guided ES
+        return GuidedES(config)
     else:
         raise AssertionError(f"{optim_name} doesn't support, please specify supported a optim in yaml.")
