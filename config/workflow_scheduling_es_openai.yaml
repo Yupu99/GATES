@@ -11,11 +11,11 @@ env:
   dynamic_gamma_wf: False   # Default: false
 
   wf_size: S
-  dataGen: 500000  # How many generations to iterate: the length of generative training dataset, usually >> generation for reproducible
-  wf_num: 30  # The number of workflow in each training problem instance
-  evalNum: 1  # How many problem instances are used to evaluate each individual in training process. Default: 1
-  wf_num_test: 30  # The number of workflow in each testing instance
-  validNum: 30  # How many problem instances are used to verify the performance in testing process
+  dataGen: 10000  # How many generations to iterate: the length of generative training dataset, usually >> generation for reproducible
+  wf_num: 10  # The number of workflow in each training problem instance
+  evalNum: 10 # How many problem instances are used to evaluate each individual in training process. Default: 1
+  wf_num_test: 10  # The number of workflow in each testing instance
+  validNum: 10  # How many problem instances are used to verify the performance in testing process
 
   generateWay: rotation  # Default: rotation
 
