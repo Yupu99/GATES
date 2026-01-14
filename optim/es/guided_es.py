@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 from optim.base_optim import BaseOptim
 from utils.policy_dict import agent_policy
-from utils.torch_util import get_flatten_params, set_flatten_params
+from utils.torch_util_01 import get_flatten_params, set_flatten_params
 
 # SubspaceManager 
 class SubspaceManager:
@@ -254,7 +254,7 @@ class GuidedES(BaseOptim):
         self._ensure_subspace_matches(n_params)
 
         # Guided ES samples populations per-generation in prepare_population
-        return None
+        return self.prepare_population(env, g=0)
 
     def sample_guided_epsilon(self, dim: int) -> np.ndarray:
         """
@@ -462,7 +462,7 @@ class GuidedES(BaseOptim):
         return self.init_perturbations(self.agent_ids, self.mu_model, self.sigma_curr, self.population_size)
 
     # Guided ES Next Population
-    def next_population(self, assemble, results, g: int, env):
+    def next_population(self, assemble, results, g: int):
         """
         Performs standard ES update on the flattened parameter vector using stored epsilons and rewards.
         """
@@ -513,7 +513,8 @@ class GuidedES(BaseOptim):
         if self.sigma_curr >= 0.01:
             self.sigma_curr *= self.sigma_decay
 
-        return None, self.sigma_curr, best_reward_per_g
+        next_population = self.prepare_population(assemble.env, g + 1)
+        return next_population, self.sigma_curr, best_reward_per_g
 
     def get_elite_model(self):
         return self.mu_model
