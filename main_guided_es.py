@@ -14,6 +14,12 @@ def set_seed(seed):
 def main():
     yaml_path = 'config/workflow_scheduling_guided_es.yaml'
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        print("Let's use: {}".format(device))
+    else:
+        print("Let's use: cpu")
+
     # Let BaseConfig parse the config file as usual
     sys.argv = ['main_guided_es.py', '--config', yaml_path]
     baseconfig = BaseConfig()
@@ -98,7 +104,7 @@ def main():
     test_Set_setting = testSet_Generate(yaml_path)
 
     # Train
-    Builder(baseconfig, train_Set_setting, test_Set_setting).build().train()
+    Builder(device, baseconfig, train_Set_setting, test_Set_setting).build().train()
 
 if __name__ == "__main__":
     main()
