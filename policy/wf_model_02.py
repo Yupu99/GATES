@@ -187,6 +187,51 @@ class WFPolicy(BasePolicy):
         out_1xA = logits.view(1, -1)
         return action_np, out_1xA
 
+    def get_action_and_log_prob(self, ob, dag, node_id, removeVM=None, VM_configuration=None, sla_gamma=None, device=None):
+        """
+        Guided ES surrogate gradient helper.
+        Returns the sampled action and its log_prob for REINFORCE.
+        """
+        if device is None:
+            device = next(self.parameters()).device
+        ob_np = np.asarray(ob, dtype=np.float32)
+        if ob_np.ndim == 1:
+            ob_np = ob_np[np.newaxis, :]
+
+        if VM_configuration is None:
+            # Fallback: use last 4 features as VM features to match vm_fea_size=4.
+            vm_features_matrix = ob_np[:, -4:]
+        else:
+            vm_features_matrix = np.asarray(VM_configuration, dtype=np.float32)
+
+        logits = self.model(device, ob_np, dag, node_id, vm_features_matrix)
+
+        logits = logits.squeeze().to(device)
+        if logits.dim() != 1:
+            logits = logits.view(-1)
+        
+        # Mask unavailable VMs
+        if removeVM is not None:
+            idx = torch.as_tensor(list(removeVM) if isinstance(removeVM, (list, tuple, set, np.ndarray, torch.Tensor)) else [removeVM], device=device, dtype=torch.long)
+            logits[idx] = float("-inf")
+
+        logits = torch.nan_to_num(logits, nan=0.0, posinf=1e9, neginf=-1e9)
+        if torch.isinf(logits).all() and (logits < 0).all():
+            logits = torch.zeros_like(logits)
+
+        # Create a Distribution
+        # Use Categorical distribution which handles softmax and sampling internally
+        # Use logits directly (unnormalised scores)
+        dist = torch.distributions.Categorical(logits=logits.float())
+
+        # Sample an Action
+        action = dist.sample()
+
+        # Get Log Probability of that Action
+        log_prob = dist.log_prob(action)
+
+        return action.item(), log_prob
+
     def xavier_init(self, m):
         if isinstance(m, nn.Linear):
             torch.nn.init.xavier_uniform_(m.weight)
