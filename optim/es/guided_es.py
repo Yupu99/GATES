@@ -4,6 +4,7 @@ Guided ES update policy
 - Uses a small surrogate REINFORCE step to update guiding subspace
 """
 from copy import deepcopy
+import os
 import numpy as np
 import torch
 import torch.nn as nn
@@ -105,6 +106,10 @@ class GuidedES(BaseOptim):
         self.guided_alpha = float(config.get("guided_alpha", 0.5))
         self.surrogate_episodes = int(config.get("surrogate_episodes", 2))
         self.reinforce_learning_rate = float(config.get("reinforce_learning_rate", 0.0))
+        # Running baseline for REINFORCE (useful when surrogate_episodes=1)
+        self.surr_use_running_baseline = bool(config.get("surr_use_running_baseline", True))
+        self.surr_baseline_beta = float(config.get("surr_baseline_beta", 0.9))
+        self.surr_baseline = None
 
         # Population + reward handling
         self.population_size = int(config["population_size"])
@@ -122,6 +127,12 @@ class GuidedES(BaseOptim):
         self.subspace = None              # Initialise the Subspace Manager (n is unknown until init_population)
         self.run_seed = None              # keep track of the run seed to build stable surrogate reset seeds
         self.num_train_instances = None   # how many train instances exist 
+        self.ob_rms_mean = None
+        self.ob_rms_std = None
+
+    def set_ob_rms(self, mean, std):
+        self.ob_rms_mean = mean
+        self.ob_rms_std = std
 
     # --- helpers for flattening ---
     def _model_flat_numpy(self, model: nn.Module) -> np.ndarray:
@@ -158,6 +169,13 @@ class GuidedES(BaseOptim):
             self.subspace = SubspaceManager(k=self.subspace_k, n=n_params)
 
     def _infer_num_train_instances(self, env) -> int:
+        if hasattr(env, "train_Set_setting") and hasattr(env.train_Set_setting, "trainMatrix"):
+            try:
+                v = int(env.train_Set_setting.trainMatrix.shape[1])
+                if v > 0:
+                    return v
+            except Exception:
+                pass
         for attr in ["evalNum"]:
             if hasattr(env, attr):
                 try:
@@ -343,6 +361,12 @@ class GuidedES(BaseOptim):
 
         # Put model into training mode so gradients can flow
         self.mu_model.train()
+        orig_greedy = None
+        if hasattr(self.mu_model, "config"):
+            orig_greedy = self.mu_model.config.get("greedy_action", None)
+            self.mu_model.config["greedy_action"] = False
+
+        device = next(self.mu_model.parameters()).device
 
         # compute gradients w.r.t model parameters (not the flat parameter), then flatten
         # Zero grads
@@ -371,6 +395,8 @@ class GuidedES(BaseOptim):
             ob = agent_data["state"]
             dag = agent_data["DAG"]
             node_id = agent_data["Node_id"]
+            vm_config = agent_data.get("VM_configuration", None)
+            sla_gamma = agent_data.get("sla_gamma", None)
             done = False
 
             log_probs = []
@@ -379,8 +405,20 @@ class GuidedES(BaseOptim):
             while not done:
                 # Forward Pass : Pass unpacked data to the policy
                 remove_vm_idx = state_dict_list.get("removeVM", None)
-                # Pass Graph Data (DAG) and Node_id
-                action, log_prob = self.mu_model.get_action_and_log_prob(ob, dag, node_id, removeVM=remove_vm_idx)
+                if ob is not None and ob.ndim < 2:
+                    ob = ob[np.newaxis, :]
+                if self.ob_rms_mean is not None and self.ob_rms_std is not None:
+                    ob = (ob - self.ob_rms_mean) / self.ob_rms_std
+
+                action, log_prob = self.mu_model.get_action_and_log_prob(
+                    ob=ob,
+                    dag=dag,
+                    node_id=node_id,
+                    removeVM=remove_vm_idx,
+                    VM_configuration=vm_config,
+                    sla_gamma=sla_gamma,
+                    device=device,
+                )
                 # Step environment
                 state_dict_list, r, done, info = env.step({"0": action})
                 log_probs.append(log_prob)
@@ -394,6 +432,8 @@ class GuidedES(BaseOptim):
                     ob = agent_data["state"]
                     dag = agent_data["DAG"]
                     node_id = agent_data["Node_id"]
+                    vm_config = agent_data.get("VM_configuration", None)
+                    sla_gamma = agent_data.get("sla_gamma", None)
         
             # Compute REINFORCE Loss for this episode
             # Loss = - sum(log_prob * Return)
@@ -405,19 +445,43 @@ class GuidedES(BaseOptim):
             else:
                 logprob_sums.append(torch.stack(log_probs).sum())
 
-        # baseline to reduce variance (simple mean baseline)
-        baseline = float(np.mean(returns)) if len(returns) > 0 else 0.0
+        # Baseline to reduce variance:
+        # - For num_eps > 1, use mean return (standard REINFORCE)
+        # - For num_eps == 1, use running baseline so guidance is not zeroed out
+        if len(returns) == 0:
+            baseline = 0.0
+        elif self.surr_use_running_baseline and len(returns) == 1:
+            baseline = 0.0 if self.surr_baseline is None else float(self.surr_baseline)
+        else:
+            baseline = float(np.mean(returns))
+        returns_std = float(np.std(returns)) if len(returns) > 1 else 0.0
 
         total_loss = 0.0
         count = 0
         for lp_sum, R in zip(logprob_sums, returns):
             if lp_sum is None:
                 continue
+            adv = float(R - baseline)
+            if returns_std > 1e-8:
+                adv = adv / returns_std
             # REINFORCE loss: -logpi * (R - b)
-            total_loss = total_loss + (-lp_sum * float(R - baseline))
+            total_loss = total_loss + (-lp_sum * adv)
             count += 1
 
+        # Update running baseline after computing the loss (so it reflects past returns)
+        if self.surr_use_running_baseline and len(returns) > 0:
+            for R in returns:
+                if self.surr_baseline is None:
+                    self.surr_baseline = float(R)
+                else:
+                    self.surr_baseline = (
+                        self.surr_baseline_beta * float(self.surr_baseline)
+                        + (1.0 - self.surr_baseline_beta) * float(R)
+                    )
+
         if count == 0:
+            if orig_greedy is not None:
+                self.mu_model.config["greedy_action"] = orig_greedy
             return np.zeros(n, dtype=np.float64)
 
         total_loss = total_loss / float(count)
@@ -435,6 +499,8 @@ class GuidedES(BaseOptim):
                 if p.grad is not None:
                     p.grad.detach_()
                     p.grad.zero_()
+            if orig_greedy is not None:
+                self.mu_model.config["greedy_action"] = orig_greedy
             return np.zeros(n, dtype=np.float64)
 
         # clear grads to be safe
@@ -442,6 +508,9 @@ class GuidedES(BaseOptim):
             if p.grad is not None:
                 p.grad.detach_()
                 p.grad.zero_()
+
+        if orig_greedy is not None:
+            self.mu_model.config["greedy_action"] = orig_greedy
 
         return flat_grad.astype(np.float64)
 
@@ -455,6 +524,17 @@ class GuidedES(BaseOptim):
         surrogate_grad = self.compute_surrogate_gradient(env, g)
         self._ensure_subspace_matches(surrogate_grad.shape[0])
         self.subspace.update(surrogate_grad)
+
+        if os.getenv("GATES_DEBUG_SURR", "0").lower() in ("1", "true", "yes"):
+            U = self.subspace.get_subspace() if self.subspace is not None else None
+            rank = int(U.shape[1]) if U is not None else 0
+            grad_norm = float(np.linalg.norm(surrogate_grad))
+            print(
+                f"[DEBUG] SURR g={g} alpha={self.guided_alpha} k={self.subspace_k} "
+                f"surr={self.surrogate_episodes} grad_norm={grad_norm:.6g} "
+                f"subspace_rank={rank}",
+                flush=True,
+            )
 
         if self.run_seed is not None:
             np.random.seed(int(self.run_seed) * 100000 + int(g))
