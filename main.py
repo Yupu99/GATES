@@ -49,7 +49,7 @@ if __name__ == "__main__":
 
     NeSi_parser = argparse.ArgumentParser(description='settings func', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     NeSi_parser.add_argument('--run', '-r', type=int, required=True, help='the run number')
-    NeSi_args = NeSi_parser.parse_args()
+    NeSi_args, _ = NeSi_parser.parse_known_args()
     print(f"run:{NeSi_args.run}")
 
     main(device, NeSi_args.run, test_Set_setting)

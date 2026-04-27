@@ -7,6 +7,7 @@
 #SBATCH --cpus-per-task=8         	# Number of CPUs (align with --processor_num below)
 #SBATCH --mail-type=END
 #SBATCH --output=slurm_out_train/%A_%a.out  # %A=array job ID, %a=task index
+# NOTE: create slurm_out_train/ before submitting: mkdir -p slurm_out_train
 
 out_dir="slurm_out_train"  # Directory to store .out files
 mkdir -p "$out_dir"
