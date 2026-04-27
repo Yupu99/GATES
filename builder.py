@@ -47,6 +47,9 @@ def build_policy(config):
         # from policy.wf_model_01 import WFPolicy  # SPNCWS
         # from policy.wf_model import WFPolicy  # ESRL
         return WFPolicy(config)
+    elif model_name == "model_workflow_ppo":
+        from policy.wf_model_ppo import WFPolicyWithCritic
+        return WFPolicyWithCritic(config)
     else:
         raise AssertionError(f"{model_name} doesn't support, please specify supported a model in yaml.")
 
@@ -56,5 +59,8 @@ def build_optim(config):
     if optim_name == "es_openai":
         from optim.es.es_openai import ESOpenAI  # ES
         return ESOpenAI(config)
+    elif optim_name == "guided_es_ppo":
+        from optim.es.guided_es_ppo import GuidedESWithPPO
+        return GuidedESWithPPO(config)
     else:
         raise AssertionError(f"{optim_name} doesn't support, please specify supported a optim in yaml.")

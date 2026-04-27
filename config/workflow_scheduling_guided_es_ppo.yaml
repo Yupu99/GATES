@@ -1,0 +1,56 @@
+
+env:
+  seed: 42
+  name: WorkflowScheduling-v3
+  traffic_pattern: CONSTANT
+
+  gamma: Null  # Deadline factor for initialize env
+  gamma_train: 5.0   # Deadline factor for training
+  gamma_test: 1.0   # Deadline factor for testing during training or after the completed training
+  dynamic_gamma: False   # Default: false
+  dynamic_gamma_wf: False   # Default: false
+
+  wf_size: S
+  dataGen: 500000  # How many generations to iterate: the length of generative training dataset, usually >> generation for reproducible
+  wf_num: 30  # The number of workflow in each training problem instance
+  evalNum: 1  # How many problem instances are used to evaluate each individual in training process. Default: 1
+  wf_num_test: 30  # The number of workflow in each testing instance
+  validNum: 30  # How many problem instances are used to verify the performance in testing process
+
+  generateWay: rotation  # Default: rotation
+
+policy:
+  name: model_workflow_ppo   # WFPolicyWithCritic (Actor + Critic)
+  state_num: 8  # will double-check in builder.py
+  action_num: 1  # will double-check in builder.py
+  discrete_action: True  # will double-check in builder.py
+  add_gru: False
+  greedy_action: True  # Default: True (greedy in ES rollout)
+
+optim:
+  name: guided_es_ppo
+  population_size: 40
+  maximization: True
+  generation_num: 2000
+  input_running_mean_std: True
+  input_clip: False
+  input_clip_value_min: Null
+  input_clip_value_max: Null
+  reward_shaping: True
+  reward_norm: False
+  sigma_init: 0.05
+  sigma_decay: 1.0
+  learning_rate: 0.001
+  learning_rate_decay: 0.9999
+  reinforce_learning_rate: 0.001
+  weight_decay: 0.0
+  # Guided-ES subspace parameters
+  subspace_dim: 20
+  alpha_min: 0.05
+  alpha_max: 0.5
+  beta: 1.0
+  # PPO surrogate gradient parameters
+  ppo_epochs: 4
+  ppo_clip: 0.2
+  ppo_lr: 0.0003
+  gamma_discount: 0.99
