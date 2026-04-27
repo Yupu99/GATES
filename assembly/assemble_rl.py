@@ -275,7 +275,7 @@ class AssembleRL(BaseAssembleRL):
                         s = (s - self.ob_rms_mean) / self.ob_rms_std
 
                     # Full forward with Critic; no torch.no_grad() so gradients flow
-                    logits, _ = model.model(self.device, s, dag, node_id, VM_configuration)
+                    logits, _value = model.model(self.device, s, dag, node_id, VM_configuration)
                     logits = logits.squeeze()
                     if logits.dim() != 1:
                         logits = logits.view(-1)

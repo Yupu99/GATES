@@ -165,7 +165,7 @@ class GuidedESWithPPO(BaseOptim):
         # How many columns to refresh this step
         baseline = self.learning_rate * np.sqrt(n_params)
         relative_change = delta_theta_norm / (baseline + 1e-8)
-        refresh_cols = int(np.clip(int(relative_change), 1, k // 2))
+        refresh_cols = int(np.clip(relative_change, 1, k // 2))
 
         # Roll so the "oldest" column is last; replace last `refresh_cols` columns
         self.subspace_U = np.roll(self.subspace_U, shift=-refresh_cols, axis=1)
@@ -251,7 +251,7 @@ class GuidedESWithPPO(BaseOptim):
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
             # PPO clip loss (Actor)
-            ratio = torch.exp(log_probs_new - log_probs_old.detach())
+            ratio = torch.exp(log_probs_new - log_probs_old)
             surr1 = ratio * advantages.detach()
             surr2 = torch.clamp(ratio, 1.0 - self.ppo_clip, 1.0 + self.ppo_clip) * advantages.detach()
             actor_loss = -torch.min(surr1, surr2).mean()
