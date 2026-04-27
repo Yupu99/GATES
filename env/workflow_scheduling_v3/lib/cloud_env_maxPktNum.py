@@ -4,7 +4,7 @@ import numpy as np
 import csv
 import math
 import os, sys, inspect, random, copy
-import gym
+import gymnasium as gym
 import torch
 
 from env.workflow_scheduling_v3.lib.stats import Stats

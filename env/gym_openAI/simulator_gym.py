@@ -1,4 +1,4 @@
-import gym
+import gymnasium as gym
 
 
 class GymEnv:
@@ -18,12 +18,10 @@ class GymEnv:
                 raise AssertionError(f"{name} doesn't support POMDP.")
 
     def reset(self, seed=None):
-        self.env.action_space.seed(seed)
-        self.env.seed(seed)
         self.step_curr = 0
         state_dict_list = {}
         state_dict = {}
-        s = self.env.reset()
+        s, _ = self.env.reset(seed=seed)
         self.env._max_episode_steps = self.step_max
         state_dict["state"] = s
         state_dict_list["0"] = state_dict
@@ -34,7 +32,8 @@ class GymEnv:
 
         state_dict_list = {}
         state_dict = {}
-        s, r, d, info = self.env.step(action["0"])
+        s, r, terminated, truncated, info = self.env.step(action["0"])
+        d = terminated or truncated
         if self.step_max != "None":
             if self.step_curr >= self.step_max or d:
                 d = True
@@ -49,7 +48,7 @@ class GymEnv:
         return ["0"]
 
     def render(self):
-        return self.env.render(mode="rgb_array")
+        return self.env.render()
 
     def close(self):
         self.env.close()
