@@ -71,7 +71,7 @@ class ESOpenAI(BaseOptim):
 
         return perturbations
 
-    def next_population(self, assemble, results, g):
+    def next_population(self, assemble, results, g, **kwargs):
         rewards = results['rewards'].tolist()
         best_reward_per_g = max(rewards)
         rewards = np.array(rewards)

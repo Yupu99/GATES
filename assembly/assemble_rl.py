@@ -123,7 +123,17 @@ class AssembleRL(BaseAssembleRL):
             start_time_eval = time.time()
             results_df = pd.DataFrame(results).sort_values(by=['policy_id'])
 
-            population, sigma_curr, best_reward_per_g = self.optim.next_population(self, results_df, g)
+            # Collect PPO trajectory in main process (single-process, with gradients)
+            # when the optimizer supports it.  Falls back gracefully for plain ES.
+            trajectories = []
+            if hasattr(self.optim, 'compute_ppo_surrogate_gradient'):
+                trajectories = self._collect_ppo_trajectory(g)
+
+            population, sigma_curr, best_reward_per_g = self.optim.next_population(
+                self, results_df, g,
+                trajectories=trajectories,
+                device=self.device
+            )
             end_time_eval = time.time() - start_time_eval
 
             end_time_generation = time.time() - start_time
@@ -221,6 +231,85 @@ class AssembleRL(BaseAssembleRL):
                     if not os.path.exists(dir_test):
                         os.makedirs(dir_test)
                     results_df.to_csv(dir_test + "/testing_record_in_training.csv", index=False, header=write_header, mode='a')
+
+    def _collect_ppo_trajectory(self, g):
+        """
+        Run a single rollout of the elite (parent) policy using *stochastic* action sampling
+        to collect a trajectory for the PPO surrogate gradient.
+
+        Key design notes:
+        - Runs in the main process (no multiprocessing) so gradients are available.
+        - Uses the same training instance index as the current generation (g).
+        - ob_rms normalisation is applied identically to worker_func.
+        - model.train() enables gradient tracking during the rollout.
+        - The value returned from get_value() is detached to a Python float for storage;
+          full re-computation happens inside compute_ppo_surrogate_gradient().
+        """
+        try:
+            model = self.optim.get_elite_model()
+            if not (hasattr(model, 'model') and hasattr(model.model, 'value_head')):
+                return []
+
+            env = builder.build_env(
+                self.device, self.config.config,
+                self.env.train_Set_setting, self.env.test_Set_setting
+            )
+            agent_ids = env.get_agent_ids()
+            states = env.reset(g, 0, 'train')
+
+            trajectories = []
+            done = False
+            model.train()
+
+            while not done:
+                for agent_id in agent_ids:
+                    s = states[agent_id]["state"]
+                    dag = states[agent_id]["DAG"]
+                    node_id = states[agent_id]["Node_id"]
+                    VM_configuration = states[agent_id]["VM_configuration"]
+                    sla_gamma = states[agent_id]["sla_gamma"]
+
+                    if s.ndim < 2:
+                        s = s[np.newaxis, :]
+                    if self.ob_rms_mean is not None:
+                        s = (s - self.ob_rms_mean) / self.ob_rms_std
+
+                    # Full forward with Critic; no torch.no_grad() so gradients flow
+                    logits, _value = model.model(self.device, s, dag, node_id, VM_configuration)
+                    logits = logits.squeeze()
+                    if logits.dim() != 1:
+                        logits = logits.view(-1)
+                    logits = torch.nan_to_num(logits, nan=0.0, posinf=1e9, neginf=-1e9)
+
+                    dist = torch.distributions.Categorical(logits=logits.float())
+                    action_tensor = dist.sample()
+                    log_prob = dist.log_prob(action_tensor).item()
+
+                    # Critic value (detached scalar; re-computed inside PPO loss)
+                    with torch.no_grad():
+                        value_tensor = model.get_value(self.device, s, dag, node_id, VM_configuration)
+                        value_scalar = value_tensor.squeeze().item()
+
+                    actions = {agent_id: action_tensor.detach().cpu().numpy()}
+                    states, r, done, _ = env.step(actions)
+
+                    trajectories.append({
+                        'ob': s,
+                        'dag': dag,
+                        'node_id': node_id,
+                        'VM_features_matrix': VM_configuration,
+                        'action': action_tensor.item(),
+                        'log_prob': log_prob,
+                        'reward': r,
+                        'value': value_scalar,
+                    })
+
+            model.eval()
+            return trajectories
+
+        except Exception as e:
+            print(f"[GuidedES-PPO] PPO trajectory collection failed: {e}", flush=True)
+            return []
 
     def eval(self):
         # load policy from log
