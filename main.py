@@ -39,17 +39,14 @@ if __name__ == "__main__":
     else:
         print("Let's use: cpu")
 
-    # Pre-parse --config so test_Set_setting uses the correct yaml
+    # Pre-parse --config and --run so test_Set_setting uses the correct yaml
     _pre_parser = argparse.ArgumentParser(add_help=False)
     _pre_parser.add_argument('--config', type=str, default='config/workflow_scheduling_es_openai.yaml')
+    _pre_parser.add_argument('--run', '-r', type=int, required=True, help='the run number')
     _pre_args, _ = _pre_parser.parse_known_args()
+    print(f"run:{_pre_args.run}")
 
     from config.test_set_config import testSet_Generate
     test_Set_setting = testSet_Generate(_pre_args.config)
 
-    NeSi_parser = argparse.ArgumentParser(description='settings func', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    NeSi_parser.add_argument('--run', '-r', type=int, required=True, help='the run number')
-    NeSi_args, _ = NeSi_parser.parse_known_args()
-    print(f"run:{NeSi_args.run}")
-
-    main(device, NeSi_args.run, test_Set_setting)
+    main(device, _pre_args.run, test_Set_setting)
